@@ -390,3 +390,11 @@ function overlayLoop() {
   requestAnimationFrame(overlayLoop);
 }
 overlayLoop();
+
+// ---------- offline (PWA) ----------
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("./sw.js").catch(() => {
+    // Offline capability is best-effort; the app works without it.
+  });
+}
