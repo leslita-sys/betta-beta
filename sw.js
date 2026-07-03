@@ -1,4 +1,4 @@
-const CACHE = "im-titi-v1";
+const CACHE = "im-titi-v2";
 const SHELL = [
   "./",
   "./index.html",

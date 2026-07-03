@@ -124,7 +124,12 @@ function fitCanvas(pane) {
 }
 
 const panes = [makePane("A"), makePane("B")];
-window.addEventListener("resize", () => panes.forEach(fitCanvas));
+window.addEventListener("resize", () =>
+  panes.forEach((p) => {
+    fitCanvas(p);
+    p.needsDetect = true; // refit clears the canvas; force a redraw
+  }),
+);
 
 // ---------- transport ----------
 
