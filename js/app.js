@@ -271,3 +271,122 @@ document.addEventListener("keydown", (e) => {
     step(1);
   }
 });
+
+// ---------- pose skeleton overlay ----------
+
+const MEDIAPIPE_WASM =
+  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
+const VISIBILITY_MIN = 0.5;
+const SKELETON_COLORS = { A: "#b7ff3f", B: "#3fd6ff" };
+
+let visionModule = null;
+let filesetPromise = null;
+
+async function getVision() {
+  visionModule ??= await import(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
+  );
+  filesetPromise ??= visionModule.FilesetResolver.forVisionTasks(
+    MEDIAPIPE_WASM,
+  );
+  return { PoseLandmarker: visionModule.PoseLandmarker, fileset: await filesetPromise };
+}
+
+async function createLandmarker() {
+  const { PoseLandmarker, fileset } = await getVision();
+  return PoseLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
+    runningMode: "VIDEO",
+    numPoses: 1,
+  });
+}
+
+function clearOverlay(pane) {
+  const ctx = pane.canvas.getContext("2d");
+  ctx.clearRect(0, 0, pane.canvas.width, pane.canvas.height);
+}
+
+async function toggleSkeleton(pane, btn) {
+  if (pane.skeletonOn) {
+    pane.skeletonOn = false;
+    btn.setAttribute("aria-pressed", "false");
+    clearOverlay(pane);
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "Loading";
+  try {
+    pane.landmarker ??= await createLandmarker();
+    pane.skeletonOn = true;
+    pane.needsDetect = true;
+    btn.setAttribute("aria-pressed", "true");
+  } catch (err) {
+    showError(
+      pane,
+      "Skeleton unavailable — the pose model couldn't load (needs internet on first use). Playback still works.",
+    );
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Skeleton";
+  }
+}
+
+panes.forEach((pane) => {
+  $(".skel", pane.el).addEventListener("click", (e) =>
+    toggleSkeleton(pane, e.currentTarget),
+  );
+});
+
+function drawSkeleton(pane, result) {
+  const ctx = pane.canvas.getContext("2d");
+  const w = parseFloat(pane.canvas.style.width) || 0;
+  const h = parseFloat(pane.canvas.style.height) || 0;
+  ctx.clearRect(0, 0, w, h);
+  const lm = result.landmarks && result.landmarks[0];
+  if (!lm) return;
+  const color = SKELETON_COLORS[pane.key];
+  ctx.lineCap = "round";
+  for (const c of visionModule.PoseLandmarker.POSE_CONNECTIONS) {
+    const p1 = lm[c.start];
+    const p2 = lm[c.end];
+    if (p1.visibility < VISIBILITY_MIN || p2.visibility < VISIBILITY_MIN)
+      continue;
+    // Dark underlay first so lines stay legible on granite and pads.
+    ctx.strokeStyle = "rgba(0,0,0,.55)";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(p1.x * w, p1.y * h);
+    ctx.lineTo(p2.x * w, p2.y * h);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(p1.x * w, p1.y * h);
+    ctx.lineTo(p2.x * w, p2.y * h);
+    ctx.stroke();
+  }
+  ctx.fillStyle = color;
+  for (const q of lm) {
+    if (q.visibility < VISIBILITY_MIN) continue;
+    ctx.beginPath();
+    ctx.arc(q.x * w, q.y * h, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function overlayLoop() {
+  for (const p of panes) {
+    if (!p.skeletonOn || !p.landmarker || p.video.readyState < 2) continue;
+    const t = p.video.currentTime;
+    if (t === p.lastDetectedTime && !p.needsDetect) continue;
+    p.lastDetectedTime = t;
+    p.needsDetect = false;
+    fitCanvas(p);
+    const result = p.landmarker.detectForVideo(p.video, performance.now());
+    drawSkeleton(p, result);
+  }
+  requestAnimationFrame(overlayLoop);
+}
+overlayLoop();
