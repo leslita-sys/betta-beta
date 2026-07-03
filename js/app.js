@@ -183,7 +183,7 @@ function play() {
   playPauseBtn.textContent = "Pause";
   for (const p of panes) {
     p.video.playbackRate = master.speed;
-    if (inClipRange(master.time, clipOf(p))) p.video.play();
+    if (inClipRange(master.time, clipOf(p))) p.video.play().catch(() => {});
   }
   master.raf = requestAnimationFrame(tick);
 }
@@ -211,18 +211,23 @@ function tick() {
       if (p.video.paused) {
         p.video.currentTime = expected;
         p.video.playbackRate = master.speed;
-        p.video.play();
+        p.video.play().catch(() => {});
       } else if (Math.abs(p.video.currentTime - expected) > 0.06) {
         p.video.currentTime = expected;
       }
     } else {
       // This clip has no footage here: freeze it at its nearest edge.
+      // Only seek when actually off the edge — re-seeking every frame
+      // fires 'seeked' and burns battery re-running pose detection.
       if (!p.video.paused) p.video.pause();
-      p.video.currentTime = clamp(
+      const pinned = clamp(
         toVideoTime(master.time, p.syncTime),
         0,
         p.duration,
       );
+      if (Math.abs(p.video.currentTime - pinned) > 0.001) {
+        p.video.currentTime = pinned;
+      }
     }
   }
 
@@ -293,9 +298,14 @@ async function getVision() {
   visionModule ??= await import(
     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
   );
-  filesetPromise ??= visionModule.FilesetResolver.forVisionTasks(
-    MEDIAPIPE_WASM,
-  );
+  if (!filesetPromise) {
+    filesetPromise = visionModule.FilesetResolver.forVisionTasks(
+      MEDIAPIPE_WASM,
+    ).catch((err) => {
+      filesetPromise = null; // transient failure — allow retry on next toggle
+      throw err;
+    });
+  }
   return { PoseLandmarker: visionModule.PoseLandmarker, fileset: await filesetPromise };
 }
 
@@ -395,6 +405,38 @@ function overlayLoop() {
   requestAnimationFrame(overlayLoop);
 }
 overlayLoop();
+
+// Warm the pose stack in the background so skeletons work offline at the
+// crag even if nobody toggled them while still on wifi. The service worker
+// caches the bundle, wasm, and model as these fetches complete.
+async function prefetchPose() {
+  // Wait until the service worker controls this page, otherwise the
+  // first-visit prefetch bypasses it and nothing lands in the cache.
+  if ("serviceWorker" in navigator) {
+    try {
+      await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) {
+        await new Promise((resolve) => {
+          navigator.serviceWorker.addEventListener(
+            "controllerchange",
+            resolve,
+            { once: true },
+          );
+          setTimeout(resolve, 5000); // fail open — prefetch is best-effort
+        });
+      }
+    } catch {
+      // no SW — prefetch still warms the browser HTTP cache
+    }
+  }
+  getVision().catch(() => {});
+  fetch(MODEL_URL, { mode: "cors" }).catch(() => {});
+}
+if ("requestIdleCallback" in window) {
+  requestIdleCallback(prefetchPose, { timeout: 10000 });
+} else {
+  setTimeout(prefetchPose, 3000);
+}
 
 // ---------- offline (PWA) ----------
 

@@ -1,4 +1,4 @@
-const CACHE = "im-titi-v2";
+const CACHE = "im-titi-v3";
 const SHELL = [
   "./",
   "./index.html",
@@ -28,25 +28,41 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// Cache-first for our shell plus the MediaPipe CDN and model hosts, so the
-// app (and the pose model, once fetched) works with zero signal at the crag.
+// Only cache good responses — a 503 or captive-portal page cached once
+// would otherwise be served forever by the offline fallback.
+function cacheIfOk(request, res) {
+  if (res.ok) {
+    const copy = res.clone();
+    caches.open(CACHE).then((c) => c.put(request, copy).catch(() => {}));
+  }
+  return res;
+}
+
+// Same-origin: network-first so redeploys reach users, cache fallback so
+// the app still opens with zero signal at the crag.
+// MediaPipe CDN + model: cache-first — versioned, immutable assets.
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
   const url = new URL(e.request.url);
-  const cacheable =
-    url.origin === location.origin ||
+  const sameOrigin = url.origin === location.origin;
+  const cdn =
     url.hostname === "cdn.jsdelivr.net" ||
     url.hostname === "storage.googleapis.com";
-  if (!cacheable) return;
-  e.respondWith(
-    caches.match(e.request).then(
-      (hit) =>
-        hit ||
-        fetch(e.request).then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy));
-          return res;
-        }),
-    ),
-  );
+  if (!sameOrigin && !cdn) return;
+  if (sameOrigin) {
+    e.respondWith(
+      fetch(e.request)
+        .then((res) => cacheIfOk(e.request, res))
+        .catch(() => caches.match(e.request, { ignoreSearch: true })),
+    );
+  } else {
+    e.respondWith(
+      caches
+        .match(e.request)
+        .then(
+          (hit) =>
+            hit || fetch(e.request).then((res) => cacheIfOk(e.request, res)),
+        ),
+    );
+  }
 });
