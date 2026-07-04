@@ -40,7 +40,9 @@ function makePane(key) {
   };
 
   const pick = () => pane.fileInput.click();
-  $(".pick", el).addEventListener("click", pick);
+  // The whole empty state is the tap target — nothing between it and the
+  // picker can swallow the click.
+  pane.empty.addEventListener("click", pick);
   $(".replace", el).addEventListener("click", pick);
   pane.fileInput.addEventListener("change", () => {
     const file = pane.fileInput.files[0];
@@ -141,6 +143,7 @@ function setupZoom(pane) {
   pane.zoomReset.addEventListener("click", () => resetZoom(pane));
 
   vp.addEventListener("wheel", (e) => {
+    if (!pane.duration) return;
     e.preventDefault();
     zoomBy(pane, Math.pow(1.1, -e.deltaY / 100));
   }, { passive: false });
@@ -148,6 +151,9 @@ function setupZoom(pane) {
   vp.addEventListener("dblclick", () => resetZoom(pane));
 
   vp.addEventListener("pointerdown", (e) => {
+    // Never hijack clicks meant for buttons/inputs (e.g. Load Attempt),
+    // and don't track gestures until a video is actually loaded.
+    if (e.target.closest("button, input") || !pane.duration) return;
     // Double-tap to reset (touch)
     if (e.pointerType === "touch" && pointers.size === 0) {
       const now = performance.now();
