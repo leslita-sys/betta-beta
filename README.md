@@ -28,16 +28,20 @@ Vanilla JS (ES modules, no build step) · MediaPipe Tasks Vision 0.10.14 (PoseLa
 1. Load Attempt A and Attempt B from the camera roll.
 2. In each video, scrub to the same moment and tap "Set sync point".
 3. Play, slow-mo (1/2x, 1/4x), or frame-step (-1/+1) — both videos stay locked in sync.
-4. Toggle "Skeleton" on either pane to overlay pose landmarks.
-5. "Replace" swaps one video while keeping the other loaded, to cycle fails against a send.
+4. Toggle "Skeleton" on either pane to overlay pose landmarks; while paused, hip and knee angle badges show measured degrees.
+5. Toggle "Ghost" to draw the OTHER attempt's skeleton on this pane, hip-anchored and torso-scaled, so body-position differences jump out even when camera angles differ.
+6. Tap "Analyze" (after syncing) to scan both attempts and get a written list of measured differences — hip angle, knee bend, arm extension, torso lean, toe direction, speed — each tappable to jump both videos to that moment. All computed on-device.
+7. Pinch or scroll to zoom either pane (drag to pan, double-tap to reset) — useful for feet, or matching framing between 0.5x and 1x lens clips.
+8. "Replace" swaps one video while keeping the other loaded, to cycle fails against a send.
 
 ## Repo layout
 
 ```
 index.html            markup + styles (single page)
 js/
-  app.js              DOM glue: panes, transport, pose overlay, SW registration
+  app.js              DOM glue: panes, transport, pose overlay, zoom, analyze, SW registration
   sync-engine.js      pure timeline math (master clock <-> per-video time)
+  analysis.js         pure geometry: joint angles, ghost normalization, diff report
 tests/
   sync-engine.test.mjs  node --test suite for the sync math
 sw.js                 service worker: offline shell + MediaPipe caching

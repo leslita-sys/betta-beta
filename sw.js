@@ -1,11 +1,13 @@
-const CACHE = "im-titi-v3";
+const CACHE = "im-titi-v5";
 const SHELL = [
   "./",
   "./index.html",
   "./js/app.js",
   "./js/sync-engine.js",
+  "./js/analysis.js",
   "./manifest.webmanifest",
   "./icon.svg",
+  "./bg.jpg",
 ];
 
 self.addEventListener("install", (e) => {
